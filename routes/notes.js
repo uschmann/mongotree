@@ -65,6 +65,10 @@ router.get('/move/:src/:target', (req, res) => {
   const col = req.app.get('db').collection('notes');
   const { src, target } = req.params;
   
+  if(src === target) {
+    return res.send(`Can not move a node into hisself`, 404);
+  }
+  
   col.findOne({ _id: src}, (err, srcNote) => {
     if(!srcNote) {
       return res.send(`Could not find source note with id: ${src}`, 404);
@@ -73,10 +77,21 @@ router.get('/move/:src/:target', (req, res) => {
       if(!targetNote) {
         return res.send(`Could not find target note with id: ${target}`, 404);
       }
+      if(targetNote.ancestors.indexOf(src) !== -1) {
+        return res.send(`Can not move a note into one of his descendants`, 404);
+      }
       
       const ancestors = targetNote.ancestors.concat(targetNote._id);
       col.findOneAndUpdate({ _id: src }, { $set: { parent: target, ancestors }}, { returnOriginal: false }, (err, result) => {
-          res.send(result.value);
+          const note = result.value;
+          col.find({ ancestors: note._id}).toArray((err, descendants) => {
+            descendants.forEach(descendant => {
+              descendant.ancestors = note.ancestors.concat(descendant.ancestors.slice(descendant.ancestors.indexOf(note._id)));
+              col.save(descendant);
+            });
+          });
+          
+          res.send(note);
       });
     });
   });
